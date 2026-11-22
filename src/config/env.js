@@ -5,6 +5,9 @@ const envSchema = z.object({
   CORS_ORIGINS: z
     .string()
     .transform((value) => value.split(",").map((item) => item.trim())),
+  FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().trim().min(1),
+  FIREBASE_DATABASE_URL: z.url(),
+  DEVICE_ID: z.string().regex(/^[a-z0-9-]{3,40}$/),
 });
 
 const validatedData = envSchema.safeParse(process.env);
