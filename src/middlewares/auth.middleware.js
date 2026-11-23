@@ -10,16 +10,16 @@ export async function requireAuth(req, _res, next) {
   }
 
   const token = authorization.slice(7);
-  
+
   if (!token) {
     throw new AppError(401, "unauthorized");
   }
 
   try {
     const decoded = await adminAuth.verifyIdToken(token);
-    
-    req.user = { uid: decoded.uid, email: decoded.email ?? null };
-    
+
+    req.user = { uid: decoded.uid };
+
     next();
   } catch {
     throw new AppError(401, "unauthorized");
@@ -28,6 +28,11 @@ export async function requireAuth(req, _res, next) {
 
 export async function requireOwner(req, _res, next) {
   const id = req.params.id;
+
+  if (!/^[a-z0-9-]{3,40}$/.test(id)) {
+    throw new AppError(404, "not_found");
+  }
+
   const ownerUid = await deviceRepository.getOwnerUid(id);
 
   if (!ownerUid) {
