@@ -12,9 +12,11 @@ async function getSettings(deviceId) {
 }
 
 async function updateSettings(deviceId, data) {
+  if (data.schedule?.mode === "always") {
+    data.alerts = { ...data.alerts, absence: false, dark: false };
+  }
+
   await settingsRepository.updateSettings(deviceId, data);
-  
-  return await getSettings(deviceId);
 }
 
 export const settingsService = {
