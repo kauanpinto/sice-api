@@ -11,11 +11,7 @@ async function ensureDeviceReady() {
 
   const defaults = {
     name: "esp32-001",
-    timezone: "America/Bahia",
     voltageV: 127,
-    onCurrentA: 0.1,
-    lightThreshold: 2048,
-    darkWhen: "high",
     schedule: { mode: "window", start: "22:00", end: "06:00" },
     alerts: {
       absence: true,
@@ -29,6 +25,7 @@ async function ensureDeviceReady() {
   };
 
   await deviceRepository.seedSettingsIfMissing(env.DEVICE_ID, defaults);
+  await deviceRepository.removeLegacySettings(env.DEVICE_ID);
 }
 
 export const deviceService = {

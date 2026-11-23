@@ -1,40 +1,20 @@
 import { z } from "zod";
 
-function isValidTimezone(v) {
-  try {
-    Intl.DateTimeFormat(undefined, { timeZone: v });
-    return true;
-  } catch {
-    return false;
-  }
-}
+const time = z.string().regex(/^\d{2}:\d{2}$/);
 
 export const settingsSchema = z
   .object({
     name: z.string().trim().min(1).max(40),
-    timezone: z.string().refine(isValidTimezone),
     voltageV: z.number().min(100).max(240),
-    onCurrentA: z.number().min(0.05).max(30),
-    lightThreshold: z.number().int().min(0).max(4095),
-    darkWhen: z.enum(["low", "high"]),
     schedule: z
       .object({
         mode: z.enum(["always", "window"]),
-        start: z
-          .string()
-          .regex(/^\d{2}:\d{2}$/)
-          .optional(),
-        end: z
-          .string()
-          .regex(/^\d{2}:\d{2}$/)
-          .optional(),
+        start: time.optional(),
+        end: time.optional(),
       })
       .strict()
       .refine(
-        (s) => {
-          if (s.mode === "window") return s.start && s.end && s.start !== s.end;
-          return true;
-        },
+        (s) => s.mode !== "window" || (s.start && s.end && s.start !== s.end),
         { message: "window precisa de start e end diferentes" },
       ),
     alerts: z

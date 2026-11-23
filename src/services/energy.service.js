@@ -1,3 +1,5 @@
+import { ON_CURRENT_A } from "../config/device-rules.js";
+
 export function computeWh(readings, startMs, endMs, settings) {
   const sorted = [...readings].sort((a, b) => a.measuredAt - b.measuredAt);
   const seen = new Set();
@@ -18,12 +20,12 @@ export function computeWh(readings, startMs, endMs, settings) {
     const segEnd = Math.min(
       next ? next.measuredAt : endMs,
       endMs,
-      cur.measuredAt + 60000,
+      cur.measuredAt + 60_000,
     );
 
     if (segEnd <= segStart) continue;
 
-    if (cur.currentA < settings.onCurrentA) continue;
+    if (cur.currentA < ON_CURRENT_A) continue;
 
     wh +=
       (cur.currentA * settings.voltageV * (segEnd - segStart)) / 1000 / 3600;

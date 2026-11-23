@@ -20,8 +20,18 @@ async function seedSettingsIfMissing(deviceId, defaults) {
   return result.snapshot.val();
 }
 
+async function removeLegacySettings(deviceId) {
+  await db.ref(`devices/${deviceId}/settings`).update({
+    timezone: null,
+    onCurrentA: null,
+    lightThreshold: null,
+    darkWhen: null,
+  });
+}
+
 export const deviceRepository = {
   getDevice,
   getOwnerUid,
   seedSettingsIfMissing,
+  removeLegacySettings,
 };
