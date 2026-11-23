@@ -1,85 +1,77 @@
 import { db } from "../infra/firebase.js";
 import { env } from "../config/env.js";
 import { computeWh } from "../services/energy.service.js";
+import { localParts } from "../utils/time.js";
+import { every } from "../utils/loop.js";
 
-function hourKey(date, tz) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const get = (t) => parts.find((p) => p.type === t).value;
+const HOUR = 3_600_000;
+const BACKFILL_HOURS = 48;
+const REFRESH_HOURS = 2;
+const KEEP_MS = 48 * HOUR;
 
-  return {
-    day: `${get("year")}-${get("month")}-${get("day")}`,
-    hour: get("hour"),
-  };
+let hours = BACKFILL_HOURS;
+
+async function recomputeHours(deviceId, settings, count) {
+  const to = Date.now();
+  const from = Math.floor((to - count * HOUR) / HOUR) * HOUR;
+
+  const snap = await db
+    .ref(`devices/${deviceId}/readings`)
+    .orderByChild("measuredAt")
+    .startAt(from - 60_000)
+    .endAt(to)
+    .get();
+  const readings = snap.exists() ? Object.values(snap.val()) : [];
+  const updates = {};
+
+  for (let start = from; start < to; start += HOUR) {
+    const end = start + HOUR;
+    const slice = readings.filter(
+      (r) => r.measuredAt >= start - 60_000 && r.measuredAt <= end,
+    );
+    const { day, hour } = localParts(start);
+
+    updates[`devices/${deviceId}/energy/hourly/${day}/${hour}`] = computeWh(
+      slice,
+      start,
+      end,
+      settings,
+    );
+  }
+
+  await db.ref().update(updates);
+}
+
+async function cleanupOldReadings(deviceId) {
+  const old = await db
+    .ref(`devices/${deviceId}/readings`)
+    .orderByChild("measuredAt")
+    .endAt(Date.now() - KEEP_MS)
+    .limitToFirst(500)
+    .get();
+
+  if (!old.exists()) return;
+
+  const updates = {};
+
+  for (const key of Object.keys(old.val())) {
+    updates[`devices/${deviceId}/readings/${key}`] = null;
+  }
+
+  await db.ref().update(updates);
+}
+
+async function runEnergy() {
+  const deviceId = env.DEVICE_ID;
+  const settings = (await db.ref(`devices/${deviceId}/settings`).get()).val();
+
+  if (!settings) return;
+
+  await recomputeHours(deviceId, settings, hours);
+  hours = REFRESH_HOURS;
+  await cleanupOldReadings(deviceId);
 }
 
 export function startEnergyJob() {
-  async function tick() {
-    try {
-      const deviceId = env.DEVICE_ID;
-      const settings = (
-        await db.ref(`devices/${deviceId}/settings`).get()
-      ).val();
-
-      if (!settings) return;
-
-      const now = new Date();
-
-      for (const offset of [0, 1]) {
-        const target = new Date(now.getTime() - offset * 3600000);
-        const { day, hour } = hourKey(target, settings.timezone);
-        const start = new Date(target);
-
-        start.setMinutes(0, 0, 0);
-
-        const end = new Date(start.getTime() + 3600000);
-        const snap = await db
-          .ref(`devices/${deviceId}/readings`)
-          .orderByChild("measuredAt")
-          .startAt(start.getTime() - 60000)
-          .endAt(end.getTime())
-          .get();
-        const readings = snap.exists() ? Object.values(snap.val()) : [];
-        const wh = computeWh(
-          readings,
-          start.getTime(),
-          end.getTime(),
-          settings,
-        );
-
-        await db
-          .ref(`devices/${deviceId}/energy/hourly/${day}/${hour}`)
-          .set(wh);
-      }
-
-      const cutoff = Date.now() - 48 * 3600000;
-      const old = await db
-        .ref(`devices/${deviceId}/readings`)
-        .orderByChild("measuredAt")
-        .endAt(cutoff)
-        .limitToFirst(500)
-        .get();
-
-      if (old.exists()) {
-        const updates = {};
-
-        for (const k of Object.keys(old.val())) {
-          updates[`devices/${deviceId}/readings/${k}`] = null;
-        }
-
-        await db.ref().update(updates);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-
-    setTimeout(tick, 60000);
-  }
-  tick();
+  every(60_000, runEnergy);
 }
