@@ -2,6 +2,10 @@ import { AppError } from "../utils/errors.js";
 
 export function errorHandler(err, _req, res, _next) {
   if (err instanceof AppError) {
+    if (err.fields)
+      return res
+        .status(err.status)
+        .json({ error: err.code, fields: err.fields });
     return res.status(err.status).json({ error: err.code });
   }
 
