@@ -8,6 +8,10 @@ const envSchema = z.object({
   FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().trim().min(1),
   FIREBASE_DATABASE_URL: z.url(),
   DEVICE_ID: z.string().regex(/^[a-z0-9-]{3,40}$/),
+  DASHBOARD_URL: z.url().optional(),
+  TARIFF_DISTRIBUTOR: z.string().default("COELBA"),
+  TARIFF_TAX_RATE: z.coerce.number().default(0.25),
+  TARIFF_FALLBACK_BRL_KWH: z.coerce.number().default(0.95),
 });
 
 const validatedData = envSchema.safeParse(process.env);

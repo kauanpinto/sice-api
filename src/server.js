@@ -1,9 +1,10 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
+import { deviceService } from "./services/device.service.js";
 import { startStatusJob } from "./jobs/status.job.js";
 import { startEnergyJob } from "./jobs/energy.job.js";
 import { startAlertsJob } from "./jobs/alerts.job.js";
-import { deviceService } from "./services/device.service.js";
+import { startCostJob } from "./jobs/cost.job.js";
 
 const app = createApp();
 
@@ -16,13 +17,13 @@ try {
 
 startStatusJob();
 startEnergyJob();
-startEnergyJob();
+startAlertsJob();
+startCostJob();
 
-const server = app.listen(env.PORT, () => {
-  console.log(`Server running on port ${env.PORT}`);
-});
+const server = app.listen(env.PORT, () =>
+  console.log(`Server running on port ${env.PORT}`),
+);
 
-server.on("error", (err) => {
-  console.error("Failed to start server: ", err);
-  process.exit(1);
+process.on("SIGTERM", () => {
+  server.close(() => process.exit(0));
 });
