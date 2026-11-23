@@ -2,6 +2,7 @@ import cors from "cors";
 import helmet from "helmet";
 import express from "express";
 import rateLimit from "express-rate-limit";
+import settingsRoutes from "./routes/settings.routes.js";
 import { env } from "./config/env.js";
 import { AppError } from "./utils/errors.js";
 import { errorHandler } from "./middlewares/error-handler.middleware.js";
@@ -37,6 +38,8 @@ export function createApp() {
   );
 
   app.use(express.json({ limit: "10kb" }));
+
+  app.use(settingsRoutes);
 
   app.use((_req, _res, next) => {
     next(new AppError(404, "not_found"));
