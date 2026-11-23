@@ -2,6 +2,7 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { startStatusJob } from "./jobs/status.job.js";
 import { startEnergyJob } from "./jobs/energy.job.js";
+import { startAlertsJob } from "./jobs/alerts.job.js";
 import { deviceService } from "./services/device.service.js";
 
 const app = createApp();
@@ -14,6 +15,7 @@ try {
 }
 
 startStatusJob();
+startEnergyJob();
 startEnergyJob();
 
 const server = app.listen(env.PORT, () => {
