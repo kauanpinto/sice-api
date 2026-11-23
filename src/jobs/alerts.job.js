@@ -1,107 +1,111 @@
-import { db } from "../infra/firebase.js";
+import { db, messaging } from "../infra/firebase.js";
 import { env } from "../config/env.js";
 import { evaluateRules } from "../services/status.service.js";
 import { pushTokensRepository } from "../repositories/push-tokens.repository.js";
-import { messaging } from "../infra/firebase.js";
 import { alertMessages } from "../utils/alert-messages.js";
+import { localParts } from "../utils/time.js";
+import { every } from "../utils/loop.js";
 
-export function startAlertsJob() {
-  async function tick() {
-    try {
-      const deviceId = env.DEVICE_ID;
-      const [statusSnap, settingsSnap, ownerSnap] = await Promise.all([
-        db.ref(`devices/${deviceId}/status`).get(),
-        db.ref(`devices/${deviceId}/settings`).get(),
-        db.ref(`devices/${deviceId}/ownerUid`).get(),
-      ]);
-      const status = statusSnap.val();
-      const settings = settingsSnap.val();
-      const ownerUid = ownerSnap.val();
+async function sendFirstNotification({
+  deviceId,
+  ownerUid,
+  rule,
+  ref,
+  current,
+}) {
+  const tokens = await pushTokensRepository.getTokens(ownerUid);
 
-      if (!status || !settings || !ownerUid) return;
+  if (tokens.length === 0) return;
 
-      const today = new Date().toISOString().slice(0, 10);
-      const energySnap = await db
-        .ref(`devices/${deviceId}/energy/hourly/${today}`)
-        .get();
-      const todayKwh = energySnap.exists()
-        ? Object.values(energySnap.val()).reduce((a, b) => a + b, 0) / 1000
-        : 0;
-      const results = evaluateRules({
-        status,
-        settings,
-        todayKwh,
-        nowMs: Date.now(),
-      });
+  const claimRef = db.ref(
+    `devices/${deviceId}/notifications/${current.episodeId}_1`,
+  );
+  const claim = await claimRef.transaction((c) =>
+    c ? undefined : { status: "sending", attempts: 1, updatedAt: Date.now() },
+  );
 
-      for (const [rule, value] of Object.entries(results)) {
-        const ref = db.ref(`devices/${deviceId}/alerts/${rule}`);
-        const current = (await ref.get()).val();
+  if (!claim.committed) return;
 
-        if (value === null || value === false) {
-          if (current) await ref.remove();
-          continue;
-        }
+  try {
+    await messaging.sendEachForMulticast({
+      tokens,
+      notification: { title: "SICE - Alerta", body: alertMessages[rule] },
+      webpush: {
+        notification: { tag: current.episodeId },
+        ...(env.DASHBOARD_URL && { fcmOptions: { link: env.DASHBOARD_URL } }),
+        headers: { TTL: "900" },
+      },
+    });
+    await claimRef.update({ status: "sent" });
+    await ref.update({ lastNotifiedAt: Date.now(), notifiedCount: 1 });
+  } catch (err) {
+    console.error(err);
+    await claimRef.update({ status: "failed" });
+  }
+}
 
-        if (!current) {
-          await ref.set({
-            state: "pending",
-            since: Date.now(),
-            episodeId: `${rule}_${Date.now()}`,
-            acknowledged: false,
-            lastNotifiedAt: null,
-            notifiedCount: 0,
-          });
-          
-          continue;
-        }
+async function runAlerts() {
+  const deviceId = env.DEVICE_ID;
+  const [statusSnap, settingsSnap, ownerSnap] = await Promise.all([
+    db.ref(`devices/${deviceId}/status`).get(),
+    db.ref(`devices/${deviceId}/settings`).get(),
+    db.ref(`devices/${deviceId}/ownerUid`).get(),
+  ]);
+  const status = statusSnap.val();
+  const settings = settingsSnap.val();
+  const ownerUid = ownerSnap.val();
 
-        if (
-          current.state === "pending" &&
-          Date.now() - current.since >= settings.graceMinutes * 60000
-        ) {
-          await ref.update({ state: "alert" });
+  if (!status || !settings || !ownerUid) return;
 
-          const tokens = await pushTokensRepository.getTokens(ownerUid);
+  const today = localParts(Date.now()).day;
+  const energySnap = await db
+    .ref(`devices/${deviceId}/energy/hourly/${today}`)
+    .get();
+  const todayKwh = energySnap.exists()
+    ? Object.values(energySnap.val()).reduce((a, b) => a + b, 0) / 1000
+    : 0;
 
-          if (tokens.length === 0) continue;
+  const results = evaluateRules({
+    status,
+    settings,
+    todayKwh,
+    nowMs: Date.now(),
+  });
 
-          const claimRef = db.ref(
-            `devices/${deviceId}/notifications/${current.episodeId}_1`,
-          );
-          const claim = await claimRef.transaction((c) =>
-            c
-              ? undefined
-              : { status: "sending", attempts: 1, updatedAt: Date.now() },
-          );
+  for (const [rule, value] of Object.entries(results)) {
+    if (value === null) continue;
 
-          if (!claim.committed) continue;
+    const ref = db.ref(`devices/${deviceId}/alerts/${rule}`);
+    const current = (await ref.get()).val();
 
-          try {
-            await messaging.sendEachForMulticast({
-              tokens,
-              notification: {
-                title: "SICE - Alerta",
-                body: alertMessages[rule],
-              },
-              webpush: {
-                notification: { tag: current.episodeId },
-                fcmOptions: { link: process.env.DASHBOARD_URL },
-                headers: { TTL: "900" },
-              },
-            });
-            await claimRef.update({ status: "sent" });
-            await ref.update({ lastNotifiedAt: Date.now(), notifiedCount: 1 });
-          } catch {
-            await claimRef.update({ status: "failed" });
-          }
-        }
-      }
-    } catch (err) {
-      console.error(err);
+    if (value === false) {
+      if (current) await ref.remove();
+      continue;
     }
 
-    setTimeout(tick, 10000);
+    if (!current) {
+      const now = Date.now();
+
+      await ref.set({
+        state: "pending",
+        since: now,
+        episodeId: `${rule}_${now}`,
+        acknowledged: false,
+        lastNotifiedAt: null,
+        notifiedCount: 0,
+      });
+      continue;
+    }
+
+    const graceMs = settings.graceMinutes * 60_000;
+
+    if (current.state === "pending" && Date.now() - current.since >= graceMs) {
+      await ref.update({ state: "alert" });
+      await sendFirstNotification({ deviceId, ownerUid, rule, ref, current });
+    }
   }
-  tick();
+}
+
+export function startAlertsJob() {
+  every(10_000, runAlerts);
 }
