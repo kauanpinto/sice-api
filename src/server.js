@@ -1,7 +1,8 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
-import { deviceService } from "./services/device.service.js";
 import { startStatusJob } from "./jobs/status.job.js";
+import { startEnergyJob } from "./jobs/energy.job.js";
+import { deviceService } from "./services/device.service.js";
 
 const app = createApp();
 
@@ -13,6 +14,7 @@ try {
 }
 
 startStatusJob();
+startEnergyJob();
 
 const server = app.listen(env.PORT, () => {
   console.log(`Server running on port ${env.PORT}`);
