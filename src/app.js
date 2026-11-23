@@ -4,6 +4,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import meRoutes from "./routes/me.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
+import pushTokensRoutes from "./routes/push-token.routes.js";
 import { env } from "./config/env.js";
 import { AppError } from "./utils/errors.js";
 import { errorHandler } from "./middlewares/error-handler.middleware.js";
@@ -42,6 +43,7 @@ export function createApp() {
 
   app.use(settingsRoutes);
   app.use(meRoutes);
+  app.use(pushTokensRoutes);
 
   app.use((_req, _res, next) => {
     next(new AppError(404, "not_found"));
